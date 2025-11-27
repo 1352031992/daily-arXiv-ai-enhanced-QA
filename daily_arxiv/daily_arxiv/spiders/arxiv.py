@@ -60,6 +60,9 @@ class ArxivSpider(scrapy.Spider):
                     current_section_rank = 2
                 else:
                     current_section_rank = 3
+                # ★ 新增：把 rank 映射为 section 文本，供后面写入 item
+                section_map = {0: "new", 1: "cross", 2: "repl", 3: "other"}
+                current_section_text = section_map.get(current_section_rank, "other")
                 continue
 
             if tag != "dl":
@@ -69,7 +72,7 @@ class ArxivSpider(scrapy.Spider):
             dts = section.css("dt")
             dds = section.css("dd")
             for paper_dt, paper_dd in zip(dts, dds):
-                # ---- arXiv id ----
+                # ---- arXiv id + version（最小改动：提取 vN）----
                 abs_href = paper_dt.css("a[title='Abstract']::attr(href)").get()
                 if not abs_href:
                     abs_href = paper_dt.css("a[href*='/abs/']::attr(href)").get()
@@ -77,12 +80,14 @@ class ArxivSpider(scrapy.Spider):
                     continue
 
                 abs_url = response.urljoin(abs_href)
-                mid = re.search(r"/abs/([0-9]{4}\.[0-9]{5})", abs_url)
+                # 从 /abs/2511.03484v3 提取 id 与 version（无 vN 时默认 v1）
+                mid = re.search(r"/abs/([0-9]{4}\.[0-9]{5})(v\d+)?", abs_url)
                 if not mid:
                     continue
                 arxiv_id = mid.group(1)
+                version = mid.group(2) or "v1"
 
-                # 去重（跨分类/跨区块）
+                # 去重（跨分类/跨区块）（注意：seen_ids 仍按“裸 id”去重，保持你原有行为）
                 if arxiv_id in self.seen_ids:
                     continue
 
@@ -100,6 +105,8 @@ class ArxivSpider(scrapy.Spider):
                     self.seen_ids.add(arxiv_id)
                     page_items.append({
                         "id": arxiv_id,
+                        "version": version,                 # ★ 新增：版本号 vN
+                        "section": current_section_text,     # ★ 新增：new / cross / repl
                         "abs": abs_url,
                         "pdf": abs_url.replace("/abs/", "/pdf/"),
                         "categories": list(paper_categories),
@@ -116,6 +123,8 @@ class ArxivSpider(scrapy.Spider):
                         self.seen_ids.add(arxiv_id)
                         page_items.append({
                             "id": arxiv_id,
+                            "version": version,                 # ★ 同样补上
+                            "section": current_section_text,     # ★ 同样补上
                             "abs": abs_url,
                             "pdf": abs_url.replace("/abs/", "/pdf/"),
                             "categories": [],
